@@ -10,6 +10,10 @@ import Control.Applicative
 import Data.Maybe
 
 -- https://www.wikiwand.com/en/Beta_distribution
+type RandomVal = Double
+type Probability = Double
+type TimeInSec = Double
+
 data BetaDist = BetaDist { alpha :: Int, beta :: Int } deriving (Show)
 data Color = Yellow | Red | Blue deriving (Show, Enum)
 data Customer = Customer { color :: Color, betaDist :: BetaDist } deriving (Show)
@@ -43,7 +47,7 @@ So the inverse function of F(t), namely F'(u) would be
 
 which we will generate a random u and results in the time [0, Infinity).
 -}
-gen_probability :: Double -> Double -> Double
+gen_probability :: Double -> RandomVal -> TimeInSec
 gen_probability alpha u = -alpha * log (1 - u)
 
 {-
@@ -63,10 +67,10 @@ Integrate the density of these graph to get the accumulative function, @Cum@. So
            = 200[y^2 / 2 - y^3 / 3]
            = 100 * y^2 - 200 / 3 * y ^3
 -}
-cumulative_distribution_fn :: Double -> Double
+cumulative_distribution_fn :: Probability -> TimeInSec
 cumulative_distribution_fn y = (100 * y ^ 2) - (200 / 3 * y ^ 3)
 
-probability_density_fn :: Double -> BetaDist -> Double
+probability_density_fn :: Probability -> BetaDist -> TimeInSec
 probability_density_fn x beta_dist = rho * x ^ (a - 1) * (1 - x) ^ (b - 1)
   where
     rho = 200
@@ -76,13 +80,7 @@ probability_density_fn x beta_dist = rho * x ^ (a - 1) * (1 - x) ^ (b - 1)
 average :: (Real a, Fractional b) => [a] -> b
 average xs = realToFrac (sum xs) / genericLength xs
 
--- runProbabilityOf :: RandomGen g => Customer -> Int -> g -> Double
--- runProbabilityOf customer iterateTime g = let alpha = (alpha . betaDist) customer
---     in fmap take iterateTime (randoms g :: [Double])
-
-type RandomVal = Double
-
-testCustomer :: BetaDist -> RandomVal -> Double
+testCustomer :: BetaDist -> RandomVal -> TimeInSec
 testCustomer bd rand = probability_density_fn possibility bd
   where possibility = gen_probability (fromIntegral . alpha $ bd) rand
 
@@ -92,33 +90,31 @@ printStat c res = do
   putStrLn . P.color c $ "Maximum waiting time: " <> show (maximum res) <> " second(s)."
   putStrLn ""
 
-findMinumumGroup :: [(String, Double)] -> String
-findMinumumGroup xs = show (toEnum . fromJust $ elemIndex (foldl1' min numbers) numbers :: Color)
-  where
-    numbers = snd <$> xs
+findMinumumGroup :: [Double] -> String
+findMinumumGroup numbers = show (toEnum . fromJust $ elemIndex (foldl1' min numbers) numbers :: Color)
 
 main = do
-  let iterateTime = 1000
+  let iterateTime = 10000000
 
   putStrLn $ P.color P.Yellow "Task 1"
-  pb1 <- newProgressBar defStyle 10 (Progress 0 iterateTime ())
+  pb <- newProgressBar defStyle 10 (Progress 0 iterateTime ())
   printStat P.Yellow <=< replicateM iterateTime $ do
-    incProgress pb1 1
+    incProgress pb 1
     randomVal <- randomIO :: IO Double
     pure $ testCustomer (betaDist yellowCustomer) randomVal
   
   putStrLn $ P.color P.Red "Task 2"
-  updateProgress pb1 (const $ Progress 0 iterateTime ())
+  updateProgress pb (const $ Progress 0 iterateTime ())
   printStat P.Red <=< replicateM iterateTime $ do
-    incProgress pb1 1
+    incProgress pb 1
     let alpha_red = (alpha . betaDist) redCustomer
     randomVal <- randomRIO (0, 1) :: IO Double
     let y = gen_probability (fromIntegral alpha_red) randomVal
     pure $ cumulative_distribution_fn y
 
+  
   putStrLn "Task 3"
-  updateProgress pb1 (const $ Progress 0 iterateTime ())
-  [pb2, pb3] <- replicateM 2 $ newProgressBar defStyle 10 (Progress 0 iterateTime ())
+  [pb1, pb2, pb3] <- replicateM 3 $ newProgressBar defStyle 10 (Progress 0 iterateTime ())
 
   yellowRes <- replicateM iterateTime $ do
     incProgress pb1 1
@@ -135,15 +131,8 @@ main = do
     randomVal <- randomIO :: IO Double
     pure $ testCustomer (betaDist blueCustomer) randomVal
 
-  printStat P.Yellow yellowRes
-  printStat P.Red redRes
-  printStat P.Blue blueRes
-
-  let bucketTag = ["yellow", "red", "blue"]
   let bucketRes = [yellowRes, redRes, blueRes]
-  let bucket = zip bucketTag bucketRes
+  -- let bucket = zip (enumFrom Yellow) bucketRes -- bounded and no need to organize
 
-  let answer = findMinumumGroup $ fmap (\(tag, xs) -> (tag, abs(average xs - maximum xs))) bucket
-
-  putStrLn $ answer <> " customer gives the closest value between the average and maximum customer"
-  putStrLn "waiting time."
+  let answer = findMinumumGroup $ fmap (\xs -> abs(average xs - maximum xs)) bucketRes
+  putStrLn $ answer <> " customer gives the closest value between the average and maximum customer waiting time."
