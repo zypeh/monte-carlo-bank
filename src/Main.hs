@@ -2,14 +2,16 @@ module Main where
 
 import System.Random
 import System.ProgressBar
-import Control.Concurrent (threadDelay)
 import Control.Monad
 import qualified System.Console.Pretty as P
-import Data.List (genericLength)
+import Data.List
+import Control.Monad
+import Control.Applicative
+import Data.Maybe
 
 -- https://www.wikiwand.com/en/Beta_distribution
 data BetaDist = BetaDist { alpha :: Int, beta :: Int } deriving (Show)
-data Color = Yellow | Red | Blue deriving (Show)
+data Color = Yellow | Red | Blue deriving (Show, Enum)
 data Customer = Customer { color :: Color, betaDist :: BetaDist } deriving (Show)
 
 yellowCustomer = Customer {
@@ -20,6 +22,11 @@ yellowCustomer = Customer {
 redCustomer = Customer {
   color = Red,
   betaDist = BetaDist { alpha = 2, beta = 2 }
+}
+
+blueCustomer = Customer {
+  color = Blue,
+  betaDist = BetaDist { alpha = 5, beta = 1 }
 }
 
 {- 
@@ -69,33 +76,74 @@ probability_density_fn x beta_dist = rho * x ^ (a - 1) * (1 - x) ^ (b - 1)
 average :: (Real a, Fractional b) => [a] -> b
 average xs = realToFrac (sum xs) / genericLength xs
 
-main = do
-  let iterateTime = 1000000
-  
-  putStrLn $ P.color P.Yellow "Task 1"
-  pb <- newProgressBar defStyle 10 (Progress 0 iterateTime ())
-  res <- replicateM iterateTime $ do
-    incProgress pb 1
-    let alpha_yellow = (alpha . betaDist) yellowCustomer
-    randomVal <- randomRIO (0, 1) :: IO Double
-    let x = gen_probability (fromIntegral alpha_yellow) randomVal
-    pure $ probability_density_fn x (betaDist yellowCustomer)
-  
-  putStrLn . P.color P.Yellow $ "Average waiting time: " <> show (average res) <> " second(s)."
-  putStrLn . P.color P.Yellow $ "Maximum waiting time: " <> show (maximum res) <> " second(s)."
+-- runProbabilityOf :: RandomGen g => Customer -> Int -> g -> Double
+-- runProbabilityOf customer iterateTime g = let alpha = (alpha . betaDist) customer
+--     in fmap take iterateTime (randoms g :: [Double])
+
+type RandomVal = Double
+
+testCustomer :: BetaDist -> RandomVal -> Double
+testCustomer bd rand = probability_density_fn possibility bd
+  where possibility = gen_probability (fromIntegral . alpha $ bd) rand
+
+printStat :: P.Color -> [Double] -> IO ()
+printStat c res = do
+  putStrLn . P.color c $ "Average waiting time: " <> show (average res) <> " second(s)."
+  putStrLn . P.color c $ "Maximum waiting time: " <> show (maximum res) <> " second(s)."
   putStrLn ""
 
+findMinumumGroup :: [(String, Double)] -> String
+findMinumumGroup xs = show (toEnum . fromJust $ elemIndex (foldl1' min numbers) numbers :: Color)
+  where
+    numbers = snd <$> xs
+
+main = do
+  let iterateTime = 1000
+
+  putStrLn $ P.color P.Yellow "Task 1"
+  pb1 <- newProgressBar defStyle 10 (Progress 0 iterateTime ())
+  printStat P.Yellow <=< replicateM iterateTime $ do
+    incProgress pb1 1
+    randomVal <- randomIO :: IO Double
+    pure $ testCustomer (betaDist yellowCustomer) randomVal
+  
   putStrLn $ P.color P.Red "Task 2"
-  updateProgress pb (const $ Progress 0 iterateTime ())
-  res2 <- replicateM iterateTime $ do
-    incProgress pb 1
+  updateProgress pb1 (const $ Progress 0 iterateTime ())
+  printStat P.Red <=< replicateM iterateTime $ do
+    incProgress pb1 1
     let alpha_red = (alpha . betaDist) redCustomer
     randomVal <- randomRIO (0, 1) :: IO Double
     let y = gen_probability (fromIntegral alpha_red) randomVal
     pure $ cumulative_distribution_fn y
 
-  putStrLn . P.color P.Red $ "Average waiting time: " <> show (average res2) <> " second(s)."
-  putStrLn . P.color P.Red $ "Maximum waiting time: " <> show (maximum res2) <> " second(s)."
-  putStrLn ""
+  putStrLn "Task 3"
+  updateProgress pb1 (const $ Progress 0 iterateTime ())
+  [pb2, pb3] <- replicateM 2 $ newProgressBar defStyle 10 (Progress 0 iterateTime ())
 
-  -- putStrLn "Which type of customer(yellow, red or blue) gives the cloest value between the averate and maximum customer waiting times?"
+  yellowRes <- replicateM iterateTime $ do
+    incProgress pb1 1
+    randomVal <- randomIO :: IO Double
+    pure $ testCustomer (betaDist yellowCustomer) randomVal
+
+  redRes <- replicateM iterateTime $ do
+    incProgress pb2 1
+    randomVal <- randomIO :: IO Double
+    pure $ testCustomer (betaDist redCustomer) randomVal
+
+  blueRes <- replicateM iterateTime $ do
+    incProgress pb3 1
+    randomVal <- randomIO :: IO Double
+    pure $ testCustomer (betaDist blueCustomer) randomVal
+
+  printStat P.Yellow yellowRes
+  printStat P.Red redRes
+  printStat P.Blue blueRes
+
+  let bucketTag = ["yellow", "red", "blue"]
+  let bucketRes = [yellowRes, redRes, blueRes]
+  let bucket = zip bucketTag bucketRes
+
+  let answer = findMinumumGroup $ fmap (\(tag, xs) -> (tag, abs(average xs - maximum xs))) bucket
+
+  putStrLn $ answer <> " customer gives the closest value between the average and maximum customer"
+  putStrLn "waiting time."
