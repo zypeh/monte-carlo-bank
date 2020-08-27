@@ -1,3 +1,4 @@
+{-# LANGUAGE NumericUnderscores #-}
 module Main where
 
 import System.Random
@@ -32,6 +33,32 @@ blueCustomer = Customer {
   color = Blue,
   betaDist = BetaDist { alpha = 5, beta = 1 }
 }
+
+{-
+
+Bank Simulation
+  
+Say we got a model assumes that customers arrive one at a time. From `F(t)` we got the probability that
+a customer arrives at any given t.
+
+    F(t) = 1 - exp(-t / alpha)
+      where alpha = 100
+
+So,
+  at first second, t = 1. The probability of the customer, c_1 arrives is F(1).
+  at second second, t = 2. The probability of the second customer, c_2 arrives is _not F(2)_. But
+  
+    (-- order statistics applied --)
+    n! / (k - 1)! (n - k)! * F(t) ^ (n - 1) * (1 - F(t)) ^ (n - k)
+      where n = capacity, in this case it will be the number of customer we want to test
+            k = the current order of the customer, 1-index
+            t = time
+
+      , and in this case the k is equal to t. Because we want to test the probability of the customer arrives
+      on each seconds. And say the bank is open from 8 to 10, 14 hours will be 3600 * 14 = 14400 seconds.
+
+      therefore, our capacity will be 14400.
+-}
 
 {- 
     
