@@ -9,6 +9,7 @@ import Data.List
 import Control.Monad
 import Control.Applicative
 import Data.Maybe
+import Math.Combinatorics.Exact.Factorial
 
 -- https://www.wikiwand.com/en/Beta_distribution
 type RandomVal = Double
@@ -55,10 +56,34 @@ So,
             t = time
 
       , and in this case the k is equal to t. Because we want to test the probability of the customer arrives
-      on each seconds. And say the bank is open from 8 to 10, 14 hours will be 3600 * 14 = 14400 seconds.
-
-      therefore, our capacity will be 14400.
+      on each seconds.
 -}
+
+{-
+  The F(t) is a exponential distribution of probability of a customer arrives after time t the preious customer arrived.
+  We can find the mean from this graph.
+
+    E[X] = \int_{0}^{Inf} t * F(t) dt
+         = \int_{0}^{Inf} t * (alpha)^-1 * exp(-t / alpha) dt
+         = alpha
+         = 100
+
+  The mean time between the customers arrive is 100 seconds!
+-}
+
+-- 12! is the largest factorial that can fit into Int32
+capacity = 10
+
+probabilityOf 
+probabilityOfCustomerAtTime :: Int -> Probability
+probabilityOfCustomerAtTime t = (fromIntegral sampling :: Double) * (f t) ^ (n - 1) * (1 - (f t)) ^ (n - k)
+  where
+    n = capacity
+    k = t
+    alpha = 100
+
+    sampling :: Int
+    sampling = factorial n / (factorial (k - 1) * factorial (n - k))
 
 {- 
     
