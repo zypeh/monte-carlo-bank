@@ -9,13 +9,13 @@ import Data.List
 import Control.Monad
 import Control.Applicative
 import Data.Maybe
-import Math.Combinatorics.Exact.Factorial
+import Debug.Trace
 
--- https://www.wikiwand.com/en/Beta_distribution
-type RandomVal = Double
-type Probability = Double
+newtype RandomVal = RandomVal Double deriving (Show)
+newtype Probability = Probability Double
 type TimeInSec = Double
 
+-- https://www.wikiwand.com/en/Beta_distribution
 data BetaDist = BetaDist { alpha :: Int, beta :: Int } deriving (Show)
 data Color = Yellow | Red | Blue deriving (Show, Enum)
 data Customer = Customer { color :: Color, betaDist :: BetaDist } deriving (Show)
@@ -35,58 +35,8 @@ blueCustomer = Customer {
   betaDist = BetaDist { alpha = 5, beta = 1 }
 }
 
-{-
-
-Bank Simulation
-  
-Say we got a model assumes that customers arrive one at a time. From `F(t)` we got the probability that
-a customer arrives at any given t.
-
-    F(t) = 1 - exp(-t / alpha)
-      where alpha = 100
-
-So,
-  at first second, t = 1. The probability of the customer, c_1 arrives is F(1).
-  at second second, t = 2. The probability of the second customer, c_2 arrives is _not F(2)_. But
-  
-    (-- order statistics applied --)
-    n! / (k - 1)! (n - k)! * F(t) ^ (n - 1) * (1 - F(t)) ^ (n - k)
-      where n = capacity, in this case it will be the number of customer we want to test
-            k = the current order of the customer, 1-index
-            t = time
-
-      , and in this case the k is equal to t. Because we want to test the probability of the customer arrives
-      on each seconds.
--}
-
-{-
-  The F(t) is a exponential distribution of probability of a customer arrives after time t the preious customer arrived.
-  We can find the mean from this graph.
-
-    E[X] = \int_{0}^{Inf} t * F(t) dt
-         = \int_{0}^{Inf} t * (alpha)^-1 * exp(-t / alpha) dt
-         = alpha
-         = 100
-
-  The mean time between the customers arrive is 100 seconds!
--}
-
--- 12! is the largest factorial that can fit into Int32
-capacity = 10
-
-probabilityOf 
-probabilityOfCustomerAtTime :: Int -> Probability
-probabilityOfCustomerAtTime t = (fromIntegral sampling :: Double) * (f t) ^ (n - 1) * (1 - (f t)) ^ (n - k)
-  where
-    n = capacity
-    k = t
-    alpha = 100
-
-    sampling :: Int
-    sampling = factorial n / (factorial (k - 1) * factorial (n - k))
-
 {- 
-    
+
     F(t) = 1 - e ^ (-t / alpha)
 
 The function above will maps the t to the probability of how customers arrive into the bank.
@@ -99,42 +49,19 @@ So the inverse function of F(t), namely F'(u) would be
 
 which we will generate a random u and results in the time [0, Infinity).
 -}
-gen_probability :: Double -> RandomVal -> TimeInSec
-gen_probability alpha u = -alpha * log (1 - u)
+timeBetweenCustomerArrives :: RandomVal -> TimeInSec
+timeBetweenCustomerArrives (RandomVal u) = -a * log (1 - u)
+  where a = 100 -- This is a constant, not from the customer
 
-{-
-To calculate the queue lengths in-front of the teller. We need to accumulate the possible time of
-the customers til time @t@. Given the function
-
-    F(x) = 200 * x (alpha - 1) * (1 - x) ^ (beta - 1)
-      where
-        alpha = 2, beta = 2 for red customer.
-
-    F(x) = 200x(1-x)
-
-Integrate the density of these graph to get the accumulative function, @Cum@. So
-
-    Cum(y) = \int_{0}^{y} 200x (1-x) dx
-           = 200 \int_{0}&{y} x - x^2 dx
-           = 200[y^2 / 2 - y^3 / 3]
-           = 100 * y^2 - 200 / 3 * y ^3
--}
-cumulative_distribution_fn :: Probability -> TimeInSec
-cumulative_distribution_fn y = (100 * y ^ 2) - (200 / 3 * y ^ 3)
-
-probability_density_fn :: Probability -> BetaDist -> TimeInSec
-probability_density_fn x beta_dist = rho * x ^ (a - 1) * (1 - x) ^ (b - 1)
+processTimeFn :: BetaDist -> RandomVal -> TimeInSec
+processTimeFn bd (RandomVal u) = rho * u ^ (a - 1) * (1 - u) ^ (b - 1)
   where
     rho = 200
-    a = alpha beta_dist
-    b = beta beta_dist
+    a = alpha bd
+    b = beta bd
 
 average :: (Real a, Fractional b) => [a] -> b
 average xs = realToFrac (sum xs) / genericLength xs
-
-testCustomer :: BetaDist -> RandomVal -> TimeInSec
-testCustomer bd rand = probability_density_fn possibility bd
-  where possibility = gen_probability (fromIntegral . alpha $ bd) rand
 
 printStat :: P.Color -> [Double] -> IO ()
 printStat c res = do
@@ -145,46 +72,68 @@ printStat c res = do
 findMinumumGroup :: [Double] -> String
 findMinumumGroup numbers = show (toEnum . fromJust $ elemIndex (foldl1' min numbers) numbers :: Color)
 
+data Queue = Queue
+  { lastCustomerArrivesIn :: !TimeInSec
+  , lastCustomerCompleteTime :: !TimeInSec
+  -- , arrivalTime :: [TimeInSec]
+  -- , servingTime :: [TimeInSec]
+  , waitingTime :: ![TimeInSec]
+  } deriving (Show)
+
+initQueue :: Queue
+initQueue = Queue 0 0 [] -- [] []
+
+simulate :: BetaDist -> Int -> Queue -> [RandomVal] -> Queue
+simulate _ 0 queue _ = queue
+simulate bd n queue (randX:randY:rands) = simulate bd (n - 1) queue' rands where
+
+  arrivingTime = timeBetweenCustomerArrives randX
+  processTime = processTimeFn bd randY
+
+  start = lastCustomerArrivesIn queue + arrivingTime
+  end = start + processTime
+
+  waitingTime' = max (lastCustomerCompleteTime queue - start) 0
+
+  queue' = Queue
+    { lastCustomerArrivesIn = start
+    , lastCustomerCompleteTime = end
+    -- , arrivalTime = arrivingTime : arrivalTime queue
+    -- , servingTime = processTime : servingTime queue
+    , waitingTime = waitingTime' : waitingTime queue
+    }
+
+runSimulate :: RandomGen g => Customer -> Int -> g -> Queue
+runSimulate c n g = simulate (betaDist c) n initQueue (RandomVal <$> (take (n*2) (randoms g)))
+
 main = do
-  let iterateTime = 10000000
+  let iterateTime = 1000000
 
+  seed <- newStdGen
   putStrLn $ P.color P.Yellow "Task 1"
-  pb <- newProgressBar defStyle 10 (Progress 0 iterateTime ())
-  printStat P.Yellow <=< replicateM iterateTime $ do
-    incProgress pb 1
-    randomVal <- randomIO :: IO Double
-    pure $ testCustomer (betaDist yellowCustomer) randomVal
-  
-  putStrLn $ P.color P.Red "Task 2"
-  updateProgress pb (const $ Progress 0 iterateTime ())
-  printStat P.Red <=< replicateM iterateTime $ do
-    incProgress pb 1
-    let alpha_red = (alpha . betaDist) redCustomer
-    randomVal <- randomRIO (0, 1) :: IO Double
-    let y = gen_probability (fromIntegral alpha_red) randomVal
-    pure $ cumulative_distribution_fn y
-
+  -- pb <- newProgressBar defStyle 10 (Progress 0 iterateTime ())
+  let yellowQueue = runSimulate yellowCustomer iterateTime seed
+  printStat P.Yellow (waitingTime yellowQueue)
+  -- pb <- newProgressBar defStyle 10 (Progress 0 iterateTime ())
+  -- printStat P.Yellow <=< replicateM iterateTime $ do
+  --   incProgress pb 1
+  --   randomVal <- randomIO :: IO Double
+  --   pure $ testCustomer (betaDist yellowCustomer) randomVal
   
   putStrLn "Task 3"
-  [pb1, pb2, pb3] <- replicateM 3 $ newProgressBar defStyle 10 (Progress 0 iterateTime ())
+  let redQueue = runSimulate redCustomer iterateTime seed
+  let blueQueue = runSimulate blueCustomer iterateTime seed
+  printStat P.Red (waitingTime redQueue)
+  printStat P.Blue (waitingTime blueQueue)
+  -- [pb1, pb2, pb3] <- replicateM 3 $ newProgressBar defStyle 10 (Progress 0 iterateTime ())
 
-  yellowRes <- replicateM iterateTime $ do
-    incProgress pb1 1
-    randomVal <- randomIO :: IO Double
-    pure $ testCustomer (betaDist yellowCustomer) randomVal
+  -- yellowRes <- replicateM iterateTime $ do
+  --   incProgress pb1 1
+  --   randomVal <- randomIO :: IO Double
+  --   pure $ testCustomer (betaDist yellowCustomer) randomVal
 
-  redRes <- replicateM iterateTime $ do
-    incProgress pb2 1
-    randomVal <- randomIO :: IO Double
-    pure $ testCustomer (betaDist redCustomer) randomVal
-
-  blueRes <- replicateM iterateTime $ do
-    incProgress pb3 1
-    randomVal <- randomIO :: IO Double
-    pure $ testCustomer (betaDist blueCustomer) randomVal
-
-  let bucketRes = [yellowRes, redRes, blueRes]
-  -- let bucket = zip (enumFrom Yellow) bucketRes -- bounded and no need to organize
+  let bucketRes = waitingTime <$> [yellowQueue, redQueue, blueQueue]
+  -- -- let bucket = zip (enumFrom Yellow) bucketRes -- bounded and no need to organize
 
   let answer = findMinumumGroup $ fmap (\xs -> abs(average xs - maximum xs)) bucketRes
   putStrLn $ answer <> " customer gives the closest value between the average and maximum customer waiting time."
