@@ -2,14 +2,14 @@
 module Main where
 
 import System.Random
-import System.ProgressBar
+-- import System.ProgressBar
 import Control.Monad
 import qualified System.Console.Pretty as P
 import Data.List
 import Control.Monad
 import Control.Applicative
 import Data.Maybe
-import Debug.Trace
+-- import Debug.Trace
 
 newtype RandomVal = RandomVal Double deriving (Show)
 newtype Probability = Probability Double
@@ -63,25 +63,31 @@ processTimeFn bd (RandomVal u) = rho * u ^ (a - 1) * (1 - u) ^ (b - 1)
 average :: (Real a, Fractional b) => [a] -> b
 average xs = realToFrac (sum xs) / genericLength xs
 
-printStat :: P.Color -> [Double] -> IO ()
+printStat :: P.Color -> [TimeInSec] -> IO ()
 printStat c res = do
   putStrLn . P.color c $ "Average waiting time: " <> show (average res) <> " second(s)."
   putStrLn . P.color c $ "Maximum waiting time: " <> show (maximum res) <> " second(s)."
   putStrLn ""
 
-findMinumumGroup :: [Double] -> String
+findMinumumGroup :: [TimeInSec] -> String
 findMinumumGroup numbers = show (toEnum . fromJust $ elemIndex (foldl1' min numbers) numbers :: Color)
 
 data Queue = Queue
-  { lastCustomerArrivesIn :: !TimeInSec
+  { lastCustomerArrivesIn    :: !TimeInSec
   , lastCustomerCompleteTime :: !TimeInSec
-  -- , arrivalTime :: [TimeInSec]
-  -- , servingTime :: [TimeInSec]
-  , waitingTime :: ![TimeInSec]
+  , customerCompleteTime     :: ![TimeInSec]
+  , waitingTime              :: ![TimeInSec]
+  , queueLen                 :: ![Int]
   } deriving (Show)
 
 initQueue :: Queue
-initQueue = Queue 0 0 [] -- [] []
+initQueue = Queue
+  { lastCustomerArrivesIn = 0
+  , lastCustomerCompleteTime = 0
+  , customerCompleteTime = []
+  , waitingTime = []
+  , queueLen = []
+  }
 
 simulate :: BetaDist -> Int -> Queue -> [RandomVal] -> Queue
 simulate _ 0 queue _ = queue
@@ -93,47 +99,41 @@ simulate bd n queue (randX:randY:rands) = simulate bd (n - 1) queue' rands where
   start = lastCustomerArrivesIn queue + arrivingTime
   end = start + processTime
 
+  customerCompleteTime' = end : customerCompleteTime queue
   waitingTime' = max (lastCustomerCompleteTime queue - start) 0
+  newQueueLen = length $ filter (> start) customerCompleteTime' -- this is the bottleneck, consider throwing more memory to GHC
 
   queue' = Queue
     { lastCustomerArrivesIn = start
     , lastCustomerCompleteTime = end
-    -- , arrivalTime = arrivingTime : arrivalTime queue
-    -- , servingTime = processTime : servingTime queue
+    , customerCompleteTime = customerCompleteTime'
     , waitingTime = waitingTime' : waitingTime queue
+    , queueLen = newQueueLen : queueLen queue -- laziness here to make counting average & maximum fast
     }
 
 runSimulate :: RandomGen g => Customer -> Int -> g -> Queue
 runSimulate c n g = simulate (betaDist c) n initQueue (RandomVal <$> (take (n*2) (randoms g)))
 
 main = do
-  let iterateTime = 1000000
+  let iterateTime = 100_000
 
   seed <- newStdGen
-  putStrLn $ P.color P.Yellow "Task 1"
-  -- pb <- newProgressBar defStyle 10 (Progress 0 iterateTime ())
+  putStrLn "Task 1"
   let yellowQueue = runSimulate yellowCustomer iterateTime seed
   printStat P.Yellow (waitingTime yellowQueue)
-  -- pb <- newProgressBar defStyle 10 (Progress 0 iterateTime ())
-  -- printStat P.Yellow <=< replicateM iterateTime $ do
-  --   incProgress pb 1
-  --   randomVal <- randomIO :: IO Double
-  --   pure $ testCustomer (betaDist yellowCustomer) randomVal
   
-  putStrLn "Task 3"
+  putStrLn "Task 2"
   let redQueue = runSimulate redCustomer iterateTime seed
-  let blueQueue = runSimulate blueCustomer iterateTime seed
   printStat P.Red (waitingTime redQueue)
-  printStat P.Blue (waitingTime blueQueue)
-  -- [pb1, pb2, pb3] <- replicateM 3 $ newProgressBar defStyle 10 (Progress 0 iterateTime ())
 
-  -- yellowRes <- replicateM iterateTime $ do
-  --   incProgress pb1 1
-  --   randomVal <- randomIO :: IO Double
-  --   pure $ testCustomer (betaDist yellowCustomer) randomVal
+  putStrLn . P.color P.Red $ "For red customers, the average queue length is " <> show (average . queueLen $ redQueue)
+  putStrLn . P.color P.Red $ "For red customers, the maximum queue length is " <> show (maximum . queueLen $ redQueue)
+  putStrLn ""
+
+  putStrLn "Task 3"
+  let blueQueue = runSimulate blueCustomer iterateTime seed
+  printStat P.Blue (waitingTime blueQueue)
 
   let bucketRes = waitingTime <$> [yellowQueue, redQueue, blueQueue]
-  -- -- let bucket = zip (enumFrom Yellow) bucketRes -- bounded and no need to organize
-
   let answer = findMinumumGroup $ fmap (\xs -> abs(average xs - maximum xs)) bucketRes
   putStrLn $ answer <> " customer gives the closest value between the average and maximum customer waiting time."

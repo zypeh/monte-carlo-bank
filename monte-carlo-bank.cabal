@@ -20,4 +20,4 @@ executable monte-carlo-bank
   build-depends:       base >= 4.7 && < 5
                      , pretty-terminal
                      , random
-                     , terminal-progress-bar
+                     -- , terminal-progress-bar
